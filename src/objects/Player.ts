@@ -1,7 +1,12 @@
 import Phaser from 'phaser';
-import { PLAYER_SPEED, PLAYER_JUMP_VELOCITY, PLAYER_DASH_SPEED, PLAYER_DASH_DURATION, PLAYER_DASH_COOLDOWN } from '../config';
+import {
+  PLAYER_SPEED, PLAYER_JUMP_VELOCITY,
+  PLAYER_DASH_SPEED, PLAYER_DASH_DURATION, PLAYER_DASH_COOLDOWN,
+  CEMENT_AMMO_PER_LEVEL, BRICK_AMMO_PER_LEVEL, BRICK_UNLOCK_LEVEL, PROJECTILE_SPEED,
+} from '../config';
 import { SoundManager } from '../systems/SoundManager';
 import { buildWorkerSprite } from '../utils/buildWorkerSprite';
+import { Projectile } from './Projectile';
 
 type AnimState = 'idle' | 'walk' | 'jump' | 'land' | 'dash';
 
@@ -13,7 +18,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     right: Phaser.Input.Keyboard.Key;
   };
   private shiftKey: Phaser.Input.Keyboard.Key;
+  private eKey: Phaser.Input.Keyboard.Key;
+  private qKey: Phaser.Input.Keyboard.Key;
   private soundManager: SoundManager;
+  private projectileGroup: Phaser.Physics.Arcade.Group;
+  private currentLevel: number;
 
   private isDashing = false;
   private dashCooldown = 0;
@@ -23,7 +32,17 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private isLanding = false;
   private currentAnim: AnimState = 'idle';
 
-  constructor(scene: Phaser.Scene, x: number, y: number, soundManager: SoundManager) {
+  cementAmmo: number = CEMENT_AMMO_PER_LEVEL;
+  brickAmmo: number = 0;
+
+  constructor(
+    scene: Phaser.Scene,
+    x: number,
+    y: number,
+    soundManager: SoundManager,
+    projectileGroup: Phaser.Physics.Arcade.Group,
+    currentLevel: number,
+  ) {
     buildWorkerSprite(scene);
 
     super(scene, x, y, 'worker', 0);
@@ -32,6 +51,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
     this.setCollideWorldBounds(true);
     this.soundManager = soundManager;
+    this.projectileGroup = projectileGroup;
+    this.currentLevel = currentLevel;
+
+    this.cementAmmo = CEMENT_AMMO_PER_LEVEL;
+    this.brickAmmo = currentLevel >= BRICK_UNLOCK_LEVEL ? BRICK_AMMO_PER_LEVEL : 0;
+
     this.playAnim('idle');
 
     this.cursors = scene.input.keyboard!.createCursorKeys();
@@ -41,6 +66,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       right: scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     };
     this.shiftKey = scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
+    this.eKey = scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+    this.qKey = scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
   }
 
   private playAnim(state: AnimState) {
@@ -70,10 +97,22 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       Phaser.Input.Keyboard.JustDown(this.wasd.up) ||
       Phaser.Input.Keyboard.JustDown(this.cursors.space);
     const dash = Phaser.Input.Keyboard.JustDown(this.shiftKey);
+    const throwCement = Phaser.Input.Keyboard.JustDown(this.eKey);
+    const throwBrick   = Phaser.Input.Keyboard.JustDown(this.qKey);
 
     // Yön
     if (goLeft)  { this.facingRight = false; this.setFlipX(true); }
     if (goRight) { this.facingRight = true;  this.setFlipX(false); }
+
+    // Fırlatma
+    if (throwCement && this.cementAmmo > 0) {
+      this.cementAmmo--;
+      this.launchProjectile('cement');
+    }
+    if (throwBrick && this.brickAmmo > 0 && this.currentLevel >= BRICK_UNLOCK_LEVEL) {
+      this.brickAmmo--;
+      this.launchProjectile('brick');
+    }
 
     // Dash
     this.dashCooldown -= delta;
@@ -117,6 +156,17 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.currentAnim = 'idle'; // zorla sıfırla ki playAnim çalışsın
       this.playAnim('idle');
     });
+  }
+
+  private launchProjectile(type: 'cement' | 'brick') {
+    const offsetX = this.facingRight ? 28 : -28;
+    const proj = new Projectile(this.scene, this.x + offsetX, this.y - 4, type, this.facingRight);
+    this.projectileGroup.add(proj);
+    // Grubu ekledikten sonra hız ve yerçekimi garantile — group.add bazen body'yi sıfırlıyor
+    const body = proj.body as Phaser.Physics.Arcade.Body;
+    body.setAllowGravity(false);
+    body.setVelocityX(this.facingRight ? PROJECTILE_SPEED : -PROJECTILE_SPEED);
+    body.setVelocityY(0);
   }
 
   private startDash() {

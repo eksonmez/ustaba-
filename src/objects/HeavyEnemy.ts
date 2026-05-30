@@ -1,24 +1,26 @@
 import Phaser from 'phaser';
-import { buildEnemySprite } from '../utils/buildEnemySprite';
+import { buildHeavySprite } from '../utils/buildHeavySprite';
 import { BaseEnemy } from './BaseEnemy';
+import { FREEZE_DURATION } from '../config';
 
-const PATROL_SPEED = 80;
-const CHASE_SPEED  = 140;
-const AGGRO_RANGE  = 180;
-const DEAGGRO_RANGE = 280;
+const PATROL_SPEED  = 40;
+const CHASE_SPEED   = 70;
+const AGGRO_RANGE   = 160;
+const DEAGGRO_RANGE = 260;
 
 type EnemyState = 'patrol' | 'chase';
 
-export class Enemy extends BaseEnemy {
+export class HeavyEnemy extends BaseEnemy {
   private moveLeft = true;
   private leftBound: number;
   private rightBound: number;
   private aiState: EnemyState = 'patrol';
+  private hp = 2;
 
   constructor(scene: Phaser.Scene, x: number, y: number, patrolRange: number = 80) {
-    buildEnemySprite(scene);
+    buildHeavySprite(scene);
 
-    super(scene, x, y, 'enemy_anim', 0);
+    super(scene, x, y, 'heavy_anim', 0);
     scene.add.existing(this);
     scene.physics.add.existing(this);
 
@@ -27,12 +29,32 @@ export class Enemy extends BaseEnemy {
 
     (this.body as Phaser.Physics.Arcade.Body).setAllowGravity(true);
     this.setVelocityX(-PATROL_SPEED);
-    this.play('enemy_walk');
+    this.play('heavy_walk');
   }
 
   protected onUnfreeze() {
     super.onUnfreeze();
     if (this.aiState === 'chase') this.setTint(0xff6666);
+    if (this.hp < 2) this.setTint(0xff8800); // hasar rengi
+  }
+
+  hitByCement() {
+    this.hp--;
+    if (this.hp <= 0) {
+      this.destroy();
+    } else {
+      // 1. vuruş: dondur + turuncu parlaklık
+      this.freeze(FREEZE_DURATION);
+      this.setTint(0xff8800);
+      this.scene.time.delayedCall(400, () => {
+        if (this.active && this.isFrozen) this.setTint(0x88ccff);
+      });
+    }
+  }
+
+  hitByBrick() {
+    this.hp = 0;
+    this.destroy();
   }
 
   update(playerX?: number, playerY?: number) {
@@ -46,7 +68,8 @@ export class Enemy extends BaseEnemy {
         this.setTint(0xff6666);
       } else if (this.aiState === 'chase' && dist > DEAGGRO_RANGE) {
         this.aiState = 'patrol';
-        this.clearTint();
+        if (this.hp < 2) this.setTint(0xff8800);
+        else this.clearTint();
       }
     }
 

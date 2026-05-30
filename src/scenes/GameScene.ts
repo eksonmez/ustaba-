@@ -1,14 +1,20 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH, GAME_HEIGHT } from '../config';
-import { LEVELS } from '../config/levels';
+import { GAME_WIDTH, GAME_HEIGHT, MIN_ENEMY_SPAWN_DISTANCE } from '../config';
+import { LEVELS, EnemyDef } from '../config/levels';
 import { Player } from '../objects/Player';
 import { Enemy } from '../objects/Enemy';
+import { HeavyEnemy } from '../objects/HeavyEnemy';
+import { HammerEnemy } from '../objects/HammerEnemy';
+import { EnemyHammer } from '../objects/EnemyHammer';
+import { BaseEnemy } from '../objects/BaseEnemy';
 import { Collectible } from '../objects/Collectible';
 import { ScoreManager } from '../systems/ScoreManager';
 import { SoundManager } from '../systems/SoundManager';
 import { Background } from '../objects/Background';
 import { MovingPlatform } from '../objects/MovingPlatform';
 import { EffectsManager } from '../systems/EffectsManager';
+import { Projectile } from '../objects/Projectile';
+import { BRICK_UNLOCK_LEVEL, MAX_LIVES_CAP } from '../config';
 
 const MAX_LIVES = 3;
 
@@ -21,8 +27,12 @@ export class GameScene extends Phaser.Scene {
   private scoreManager!: ScoreManager;
   private soundManager!: SoundManager;
   private effects!: EffectsManager;
+  private projectiles!: Phaser.Physics.Arcade.Group;
+  private enemyHammers!: Phaser.Physics.Arcade.Group;
   private scoreText!: Phaser.GameObjects.Text;
   private livesText!: Phaser.GameObjects.Text;
+  private cementText!: Phaser.GameObjects.Text;
+  private brickText!: Phaser.GameObjects.Text;
   private lives = MAX_LIVES;
   private currentLevel = 0;
   private isInvincible = false;
@@ -47,6 +57,8 @@ export class GameScene extends Phaser.Scene {
     this.scoreManager = new ScoreManager();
     this.soundManager = new SoundManager();
     this.effects      = new EffectsManager(this);
+    this.projectiles   = this.physics.add.group();
+    this.enemyHammers  = this.physics.add.group();
 
     const levelCfg = LEVELS[this.currentLevel];
 
@@ -70,14 +82,22 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.enemies = this.add.group();
-    for (const e of levelCfg.enemies) {
-      this.enemies.add(new Enemy(this, e.x, e.y, e.range));
+    const spawnList = this.selectSpawns(levelCfg.spawnPool, levelCfg.spawnCount, levelCfg.playerStart);
+    for (const e of spawnList) {
+      const type = e.type ?? 'runner';
+      if (type === 'heavy') {
+        this.enemies.add(new HeavyEnemy(this, e.x, e.y, e.range));
+      } else if (type === 'hammer') {
+        this.enemies.add(new HammerEnemy(this, e.x, e.y, e.range, this.enemyHammers));
+      } else {
+        this.enemies.add(new Enemy(this, e.x, e.y, e.range));
+      }
     }
 
     this.physics.add.collider(this.enemies.getChildren(), this.platforms);
     this.physics.add.collider(this.enemies.getChildren(), this.movingPlatforms);
 
-    this.player = new Player(this, levelCfg.playerStart.x, levelCfg.playerStart.y, this.soundManager);
+    this.player = new Player(this, levelCfg.playerStart.x, levelCfg.playerStart.y, this.soundManager, this.projectiles, this.currentLevel + 1);
     this.physics.add.collider(this.player, this.platforms);
     this.physics.add.collider(this.player, this.movingPlatforms);
 
@@ -93,10 +113,18 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
+    // Mermi <-> platform: Phaser collider yeterli
+    this.physics.add.collider(this.projectiles, this.platforms, (proj) => {
+      const p = proj as Projectile;
+      if (!p.active) return;
+      p.disableBody(true, true);
+      this.time.delayedCall(0, () => { if (p.scene) p.destroy(); });
+    });
+
     this.physics.add.overlap(this.player, this.enemies, (_p, enemy) => {
       if (this.gameFinished || this.isInvincible) return;
       const body = this.player.body as Phaser.Physics.Arcade.Body;
-      const e = enemy as Enemy;
+      const e = enemy as BaseEnemy;
       if (body.velocity.y > 0 && this.player.y < e.y) {
         this.effects.stomp(e.x, e.y);
         e.stomp();
@@ -125,9 +153,18 @@ export class GameScene extends Phaser.Scene {
       fontSize: '18px', color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5, 0).setScrollFactor(0);
 
-    this.add.text(10, 34, '← → / A D: hareket   W / ↑ / Space: zıpla   Shift: dash', {
+    this.add.text(10, 34, '← → / A D: hareket   W / ↑ / Space: zıpla   Shift: dash   E: çimento   Q: tuğla', {
       fontSize: '11px', color: '#aaaaaa',
     }).setScrollFactor(0);
+
+    this.cementText = this.add.text(10, 50, this.cementAmmoLabel(), {
+      fontSize: '13px', color: '#cccccc', fontStyle: 'bold',
+    }).setScrollFactor(0);
+
+    this.brickText = this.add.text(10, 66, '', {
+      fontSize: '13px', color: '#c1440e', fontStyle: 'bold',
+    }).setScrollFactor(0);
+    this.updateAmmoHUD();
 
     // Bekleme ekranı — oyuncu hareket ettirince başlar
     this.showReadyScreen();
@@ -191,6 +228,13 @@ export class GameScene extends Phaser.Scene {
 
     const isLastLevel = this.currentLevel >= LEVELS.length - 1;
 
+    // Can iyileştirmesi — tavana ulaşmamışsa +1
+    if (this.lives < MAX_LIVES_CAP) {
+      this.lives++;
+      this.livesText.setText('CAN: ' + this.lives);
+      this.showLifeGain();
+    }
+
     this.soundManager.win();
 
     const overlay = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 420, 200, 0x000000, 0.75)
@@ -228,6 +272,21 @@ export class GameScene extends Phaser.Scene {
       });
       menuBtn.on('pointerdown', () => this.scene.start('MenuScene'));
     }
+  }
+
+  private showLifeGain() {
+    const txt = this.add.text(GAME_WIDTH - 10, 36, '+1 CAN!', {
+      fontSize: '16px', color: '#44ff88', fontStyle: 'bold',
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(15);
+
+    this.tweens.add({
+      targets: txt,
+      y: 10,
+      alpha: 0,
+      duration: 1200,
+      ease: 'Power2',
+      onComplete: () => txt.destroy(),
+    });
   }
 
   private takeDamage() {
@@ -283,6 +342,31 @@ export class GameScene extends Phaser.Scene {
     menuBtn.on('pointerdown', () => this.scene.start('MenuScene'));
   }
 
+  private selectSpawns(
+    pool: EnemyDef[],
+    count: number,
+    playerStart: { x: number; y: number },
+  ): EnemyDef[] {
+    const eligible = pool.filter(e =>
+      Phaser.Math.Distance.Between(e.x, e.y, playerStart.x, playerStart.y) >= MIN_ENEMY_SPAWN_DISTANCE
+    );
+    Phaser.Utils.Array.Shuffle(eligible);
+    return eligible.slice(0, count);
+  }
+
+  private cementAmmoLabel(): string {
+    return `Cimento [E]: ${this.player?.cementAmmo ?? 0}`;
+  }
+
+  private updateAmmoHUD() {
+    this.cementText.setText(this.cementAmmoLabel());
+    if (this.currentLevel + 1 >= BRICK_UNLOCK_LEVEL) {
+      this.brickText.setText(`Tugla [Q]: ${this.player?.brickAmmo ?? 0}`);
+    } else {
+      this.brickText.setText('');
+    }
+  }
+
   private addPlatform(x: number, y: number, w: number, h: number, color: number) {
     const key = `plat_${w}_${h}_${color}`;
     if (!this.textures.exists(key)) {
@@ -303,5 +387,60 @@ export class GameScene extends Phaser.Scene {
       (e as Enemy).update(this.player.x, this.player.y);
     }
     for (const mp of this.movingPlatforms) mp.update();
+    this.checkProjectileHits();
+    this.checkHammerHits();
+    this.updateAmmoHUD();
+  }
+
+  private checkProjectileHits() {
+    const projs = this.projectiles.getChildren();
+    const enemyList = this.enemies.getChildren();
+    for (const projObj of projs) {
+      const p = projObj as Projectile;
+      if (!p.active) continue;
+      const pb = p.getBounds();
+      for (const enemyObj of enemyList) {
+        const e = enemyObj as BaseEnemy;
+        if (!e.active) continue;
+        if (!Phaser.Geom.Intersects.RectangleToRectangle(pb, e.getBounds())) continue;
+
+        const ptype = p.projectileType;
+        const ex = e.x; const ey = e.y;
+        p.disableBody(true, true);
+        this.time.delayedCall(0, () => { if (p.scene) p.destroy(); });
+
+        if (ptype === 'cement') {
+          e.hitByCement();
+          // Çimento vurduktan sonra düşman öldüyse (ağır işçi 2. vuruş) skor ekle
+          if (!e.active) {
+            this.effects.stomp(ex, ey);
+            this.soundManager.stomp();
+            this.scoreManager.add(20);
+            this.scoreText.setText('SKOR: ' + this.scoreManager.getScore());
+          }
+        } else {
+          e.hitByBrick();
+          this.effects.stomp(ex, ey);
+          this.soundManager.stomp();
+          this.scoreManager.add(20);
+          this.scoreText.setText('SKOR: ' + this.scoreManager.getScore());
+        }
+        break;
+      }
+    }
+  }
+
+  private checkHammerHits() {
+    if (this.isInvincible || this.gameFinished) return;
+    const playerBounds = this.player.getBounds();
+    for (const hObj of this.enemyHammers.getChildren()) {
+      const h = hObj as EnemyHammer;
+      if (!h.active) continue;
+      if (!Phaser.Geom.Intersects.RectangleToRectangle(playerBounds, h.getBounds())) continue;
+      h.disableBody(true, true);
+      this.time.delayedCall(0, () => { if (h.scene) h.destroy(); });
+      this.takeDamage();
+      break;
+    }
   }
 }
