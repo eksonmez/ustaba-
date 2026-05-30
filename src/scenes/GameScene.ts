@@ -237,40 +237,96 @@ export class GameScene extends Phaser.Scene {
 
     this.soundManager.win();
 
-    const overlay = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 420, 200, 0x000000, 0.75)
-      .setScrollFactor(0).setDepth(10);
-    overlay;
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    const score = this.scoreManager.getScore();
 
-    const msg = isLastLevel ? 'TÜM BÖLÜMLER TAMAMLANDI!' : `BÖLÜM ${this.currentLevel + 1} TAMAMLANDI!`;
-    this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 60, msg, {
-      fontSize: '28px', color: '#ffd700', fontStyle: 'bold',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    // Ekranı yavaşça karart
+    const overlay = this.add.rectangle(cx, cy, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.75)
+      .setScrollFactor(0).setDepth(10).setAlpha(0);
+    this.tweens.add({ targets: overlay, alpha: 1, duration: 600, ease: 'Sine.easeIn' });
 
-    this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20, `Skor: ${this.scoreManager.getScore()}`, {
-      fontSize: '20px', color: '#ffffff',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    // Panel
+    const panelH = isLastLevel ? 240 : 280;
+    const panel = this.add.graphics().setScrollFactor(0).setDepth(11).setAlpha(0);
+    panel.fillStyle(0x0a1a00, 1);
+    panel.fillRoundedRect(cx - 210, cy - 130, 420, panelH, 14);
+    panel.lineStyle(2, 0xffd700, 0.8);
+    panel.strokeRoundedRect(cx - 210, cy - 130, 420, panelH, 14);
+    this.tweens.add({ targets: panel, alpha: 1, duration: 400, delay: 400 });
+
+    const slideIn = (obj: Phaser.GameObjects.Text, delay: number) => {
+      const targetY = obj.y;
+      obj.y = targetY - 40;
+      obj.setAlpha(0);
+      this.tweens.add({ targets: obj, y: targetY, alpha: 1, duration: 380, delay, ease: 'Back.easeOut' });
+    };
+
+    // Başlık
+    const msg = isLastLevel ? 'TÜM BÖLÜMLER\nTAMAMANLANDI!' : `BÖLÜM ${this.currentLevel + 1}\nTAMAMANLANDI!`;
+    const title = this.add.text(cx, cy - 88, msg, {
+      fontSize: '32px', color: '#ffd700', fontStyle: 'bold',
+      stroke: '#7a6000', strokeThickness: 4, align: 'center',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(12);
+    slideIn(title, 550);
+
+    // Skor
+    const scoreLbl = this.add.text(cx, cy - 14, 'SKOR', {
+      fontSize: '13px', color: '#ffd700', letterSpacing: 4,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(12);
+    const scoreNum = this.add.text(cx, cy + 18, `${score}`, {
+      fontSize: '34px', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(12);
+    slideIn(scoreLbl, 750);
+    slideIn(scoreNum, 800);
+
+    // Buton yardımcısı
+    const makeBtn = (
+      label: string, bgY: number, textY: number, primary: boolean, delay: number,
+      onClick: () => void,
+    ) => {
+      const btnBg = this.add.graphics().setScrollFactor(0).setDepth(12).setAlpha(0);
+      const draw = (hover: boolean) => {
+        btnBg.clear();
+        if (primary) {
+          btnBg.fillStyle(hover ? 0xd4a000 : 0xb08000, 1);
+          btnBg.fillRoundedRect(cx - 130, bgY, 260, 44, 8);
+          btnBg.lineStyle(2, 0xffd700, 1);
+          btnBg.strokeRoundedRect(cx - 130, bgY, 260, 44, 8);
+        } else {
+          btnBg.fillStyle(hover ? 0x444444 : 0x2a2a2a, 1);
+          btnBg.fillRoundedRect(cx - 130, bgY, 260, 36, 8);
+          btnBg.lineStyle(1, 0x777777, 1);
+          btnBg.strokeRoundedRect(cx - 130, bgY, 260, 36, 8);
+        }
+      };
+      draw(false);
+
+      const btnTxt = this.add.text(cx, textY, label, {
+        fontSize: primary ? '20px' : '16px',
+        color: primary ? '#ffffff' : '#cccccc',
+        fontStyle: primary ? 'bold' : 'normal',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(13).setAlpha(0);
+
+      const hitH = primary ? 44 : 36;
+      btnBg.setInteractive(new Phaser.Geom.Rectangle(cx - 130, bgY, 260, hitH), Phaser.Geom.Rectangle.Contains);
+      btnBg.on('pointerover',  () => { draw(true);  btnTxt.setStyle({ color: primary ? '#ffe0b2' : '#ffffff' }); });
+      btnBg.on('pointerout',   () => { draw(false); btnTxt.setStyle({ color: primary ? '#ffffff' : '#cccccc' }); });
+      btnBg.on('pointerdown',  onClick);
+      btnTxt.setInteractive({ useHandCursor: true });
+      btnTxt.on('pointerdown', onClick);
+
+      this.tweens.add({ targets: [btnBg, btnTxt], alpha: 1, duration: 320, delay });
+    };
 
     if (isLastLevel) {
-      const menuBtn = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 40, '[ ANA MENÜ ]', {
-        fontSize: '20px', color: '#f4a261', fontStyle: 'bold',
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(11).setInteractive({ useHandCursor: true });
-      menuBtn.on('pointerdown', () => this.scene.start('MenuScene'));
+      makeBtn('⌂  ANA MENÜ', cy + 58, cy + 76, true, 1000,
+        () => this.scene.start('MenuScene'));
     } else {
-      const nextBtn = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 40, '[ SONRAKİ BÖLÜM ]', {
-        fontSize: '20px', color: '#f4a261', fontStyle: 'bold',
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(11).setInteractive({ useHandCursor: true });
-
-      const menuBtn = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 76, '[ ANA MENÜ ]', {
-        fontSize: '15px', color: '#aaaaaa',
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(11).setInteractive({ useHandCursor: true });
-
-      nextBtn.on('pointerdown', () => {
-        this.scene.start('GameScene', {
-          level: this.currentLevel + 1,
-          lives: this.lives,
-        });
-      });
-      menuBtn.on('pointerdown', () => this.scene.start('MenuScene'));
+      makeBtn('▶  SONRAKİ BÖLÜM', cy + 52, cy + 74, true, 1000,
+        () => this.scene.start('GameScene', { level: this.currentLevel + 1, lives: this.lives }));
+      makeBtn('⌂  ANA MENÜ', cy + 104, cy + 122, false, 1150,
+        () => this.scene.start('MenuScene'));
     }
   }
 
@@ -318,28 +374,107 @@ export class GameScene extends Phaser.Scene {
     this.player.setActive(false);
     this.soundManager.gameOver();
 
-    this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 400, 200, 0x000000, 0.75)
-      .setScrollFactor(0).setDepth(10);
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    const score = this.scoreManager.getScore();
 
-    this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 60, 'OYUN BİTTİ', {
-      fontSize: '36px', color: '#e63946', fontStyle: 'bold',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    // Ekranı yavaşça karart — fillAlpha sabit, game object alpha 0→1
+    const overlay = this.add.rectangle(cx, cy, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.82)
+      .setScrollFactor(0).setDepth(10).setAlpha(0);
+    this.tweens.add({ targets: overlay, alpha: 1, duration: 700, ease: 'Sine.easeIn' });
 
-    this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 16, `Skor: ${this.scoreManager.getScore()}`, {
-      fontSize: '20px', color: '#ffffff',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
+    // Panel arka planı — solukken başlayıp beliriyor
+    const panel = this.add.graphics().setScrollFactor(0).setDepth(11).setAlpha(0);
+    panel.fillStyle(0x1a0a00, 1);
+    panel.fillRoundedRect(cx - 210, cy - 130, 420, 280, 14);
+    panel.lineStyle(2, 0xf4a261, 0.8);
+    panel.strokeRoundedRect(cx - 210, cy - 130, 420, 280, 14);
+    this.tweens.add({ targets: panel, alpha: 1, duration: 400, delay: 500 });
 
-    const restartBtn = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 26, '[ BAŞTAN BAŞLA ]', {
-      fontSize: '20px', color: '#f4a261', fontStyle: 'bold',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(11).setInteractive({ useHandCursor: true });
+    // Elemanları yukarıdan kaydırarak sırayla getir
+    const slideIn = (obj: Phaser.GameObjects.Text, delay: number) => {
+      const targetY = obj.y;
+      obj.y = targetY - 40;
+      obj.setAlpha(0);
+      this.tweens.add({
+        targets: obj, y: targetY, alpha: 1,
+        duration: 380, delay, ease: 'Back.easeOut',
+      });
+    };
 
-    const menuBtn = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 62, '[ ANA MENÜ ]', {
-      fontSize: '15px', color: '#aaaaaa',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(11).setInteractive({ useHandCursor: true });
+    // Başlık
+    const title = this.add.text(cx, cy - 95, 'OYUN BİTTİ', {
+      fontSize: '40px', color: '#e63946', fontStyle: 'bold',
+      stroke: '#7a0010', strokeThickness: 4,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(12);
+    slideIn(title, 600);
 
-    // Baştan başla = bölüm 1, can 3
-    restartBtn.on('pointerdown', () => this.scene.start('GameScene', { level: 0, lives: MAX_LIVES }));
-    menuBtn.on('pointerdown', () => this.scene.start('MenuScene'));
+    // Ayırıcı çizgi
+    const line = this.add.graphics().setScrollFactor(0).setDepth(12).setAlpha(0);
+    line.lineStyle(1, 0xf4a261, 0.5);
+    line.beginPath();
+    line.moveTo(cx - 140, cy - 52);
+    line.lineTo(cx + 140, cy - 52);
+    line.strokePath();
+    this.tweens.add({ targets: line, alpha: 1, duration: 300, delay: 820 });
+
+    // Skor
+    const scoreTxt = this.add.text(cx, cy - 28, `SKOR`, {
+      fontSize: '13px', color: '#f4a261', letterSpacing: 4,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(12);
+    const scoreNum = this.add.text(cx, cy + 8, `${score}`, {
+      fontSize: '36px', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(12);
+    slideIn(scoreTxt, 900);
+    slideIn(scoreNum, 950);
+
+    // Baştan Başla butonu
+    const btn1Bg = this.add.graphics().setScrollFactor(0).setDepth(12);
+    const drawBtn1 = (hover: boolean) => {
+      btn1Bg.clear();
+      btn1Bg.fillStyle(hover ? 0xe06400 : 0xc05000, 1);
+      btn1Bg.fillRoundedRect(cx - 130, cy + 48, 260, 44, 8);
+      btn1Bg.lineStyle(2, 0xf4a261, 1);
+      btn1Bg.strokeRoundedRect(cx - 130, cy + 48, 260, 44, 8);
+    };
+    drawBtn1(false);
+    const btn1Txt = this.add.text(cx, cy + 70, '▶  BAŞTAN BAŞLA', {
+      fontSize: '20px', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(13);
+
+    btn1Bg.setInteractive(new Phaser.Geom.Rectangle(cx - 130, cy + 48, 260, 44), Phaser.Geom.Rectangle.Contains);
+    btn1Bg.on('pointerover',  () => { drawBtn1(true);  btn1Txt.setStyle({ color: '#ffe0b2' }); });
+    btn1Bg.on('pointerout',   () => { drawBtn1(false); btn1Txt.setStyle({ color: '#ffffff' }); });
+    btn1Bg.on('pointerdown',  () => this.scene.start('GameScene', { level: 0, lives: MAX_LIVES }));
+    btn1Txt.setInteractive({ useHandCursor: true });
+    btn1Txt.on('pointerdown', () => this.scene.start('GameScene', { level: 0, lives: MAX_LIVES }));
+
+    btn1Bg.setAlpha(0); btn1Txt.setAlpha(0);
+    this.tweens.add({ targets: [btn1Bg, btn1Txt], alpha: 1, duration: 320, delay: 1100 });
+
+    // Ana Menü butonu
+    const btn2Bg = this.add.graphics().setScrollFactor(0).setDepth(12);
+    const drawBtn2 = (hover: boolean) => {
+      btn2Bg.clear();
+      btn2Bg.fillStyle(hover ? 0x444444 : 0x2a2a2a, 1);
+      btn2Bg.fillRoundedRect(cx - 130, cy + 100, 260, 36, 8);
+      btn2Bg.lineStyle(1, 0x777777, 1);
+      btn2Bg.strokeRoundedRect(cx - 130, cy + 100, 260, 36, 8);
+    };
+    drawBtn2(false);
+    const btn2Txt = this.add.text(cx, cy + 118, '⌂  ANA MENÜ', {
+      fontSize: '16px', color: '#cccccc',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(13);
+
+    btn2Bg.setInteractive(new Phaser.Geom.Rectangle(cx - 130, cy + 100, 260, 36), Phaser.Geom.Rectangle.Contains);
+    btn2Bg.on('pointerover',  () => { drawBtn2(true);  btn2Txt.setStyle({ color: '#ffffff' }); });
+    btn2Bg.on('pointerout',   () => { drawBtn2(false); btn2Txt.setStyle({ color: '#cccccc' }); });
+    btn2Bg.on('pointerdown',  () => this.scene.start('MenuScene'));
+    btn2Txt.setInteractive({ useHandCursor: true });
+    btn2Txt.on('pointerdown', () => this.scene.start('MenuScene'));
+
+    btn2Bg.setAlpha(0); btn2Txt.setAlpha(0);
+    this.tweens.add({ targets: [btn2Bg, btn2Txt], alpha: 1, duration: 320, delay: 1250 });
   }
 
   private selectSpawns(
