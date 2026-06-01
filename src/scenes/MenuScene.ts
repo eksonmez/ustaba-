@@ -315,7 +315,7 @@ export class MenuScene extends Phaser.Scene {
 
     btnBg.on('pointerover',  () => { drawBtn(true);  startText.setStyle({ color: '#ffe0b2' }); });
     btnBg.on('pointerout',   () => { drawBtn(false); startText.setStyle({ color: '#ffffff' }); });
-    btnBg.on('pointerdown',  () => this.scene.start('GameScene', { level: 0, lives: 3 }));
+    btnBg.on('pointerdown',  () => this.scene.start('CharacterSelectScene', { level: 0, lives: 3 }));
     startText.on('pointerover',  () => { drawBtn(true);  startText.setStyle({ color: '#ffe0b2' }); });
     startText.on('pointerout',   () => { drawBtn(false); startText.setStyle({ color: '#ffffff' }); });
 
@@ -328,7 +328,7 @@ export class MenuScene extends Phaser.Scene {
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
-    startText.on('pointerdown', () => this.scene.start('GameScene', { level: 0, lives: 3 }));
+    startText.on('pointerdown', () => this.scene.start('CharacterSelectScene', { level: 0, lives: 3 }));
 
     if (DEV_LEVEL_SELECT) {
       this.add.text(GAME_WIDTH / 2, cy - 24, '— TEST: Bölüm Seç —', {
@@ -358,7 +358,7 @@ export class MenuScene extends Phaser.Scene {
 
         bg.on('pointerover',  () => bg.setFillStyle(0x555555));
         bg.on('pointerout',   () => bg.setFillStyle(0x333333));
-        bg.on('pointerdown',  () => this.scene.start('GameScene', { level: i, lives: 3 }));
+        bg.on('pointerdown',  () => this.scene.start('CharacterSelectScene', { level: i, lives: 3 }));
       });
     }
   }

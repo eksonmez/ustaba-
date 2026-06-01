@@ -1,14 +1,14 @@
 import Phaser from 'phaser';
 import {
-  PLAYER_SPEED, PLAYER_JUMP_VELOCITY,
-  PLAYER_DASH_SPEED, PLAYER_DASH_DURATION, PLAYER_DASH_COOLDOWN,
+  PLAYER_DASH_SPEED, PLAYER_DASH_DURATION,
   CEMENT_AMMO_PER_LEVEL, BRICK_AMMO_PER_LEVEL, BRICK_UNLOCK_LEVEL, PROJECTILE_SPEED,
 } from '../config';
 import { SoundManager } from '../systems/SoundManager';
-import { buildWorkerSprite } from '../utils/buildWorkerSprite';
+import { buildCharacterSprite } from '../utils/buildCharacterSprite';
 import { Projectile } from './Projectile';
+import { CharacterConfig, CHARACTERS } from '../types/CharacterConfig';
 
-type AnimState = 'idle' | 'walk' | 'jump' | 'land' | 'dash';
+type AnimState = 'idle' | 'walk' | 'jump' | 'land';
 
 export class Player extends Phaser.Physics.Arcade.Sprite {
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -23,6 +23,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private soundManager: SoundManager;
   private projectileGroup: Phaser.Physics.Arcade.Group;
   private currentLevel: number;
+  private charConfig: CharacterConfig;
 
   private isDashing = false;
   private dashCooldown = 0;
@@ -31,6 +32,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private wasOnGround = true;
   private isLanding = false;
   private currentAnim: AnimState = 'idle';
+  private hasDoubleJump = false;
 
   cementAmmo: number = CEMENT_AMMO_PER_LEVEL;
   brickAmmo: number = 0;
@@ -42,10 +44,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     soundManager: SoundManager,
     projectileGroup: Phaser.Physics.Arcade.Group,
     currentLevel: number,
+    characterId?: string,
   ) {
-    buildWorkerSprite(scene);
+    const charConfig = CHARACTERS.find(c => c.id === characterId) ?? CHARACTERS[0];
+    buildCharacterSprite(scene, charConfig.textureKey, charConfig.colors);
 
-    super(scene, x, y, 'worker', 0);
+    super(scene, x, y, charConfig.textureKey, 0);
     scene.add.existing(this);
     scene.physics.add.existing(this);
 
@@ -53,9 +57,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.soundManager = soundManager;
     this.projectileGroup = projectileGroup;
     this.currentLevel = currentLevel;
+    this.charConfig = charConfig;
 
     this.cementAmmo = CEMENT_AMMO_PER_LEVEL;
-    this.brickAmmo = currentLevel >= BRICK_UNLOCK_LEVEL ? BRICK_AMMO_PER_LEVEL : 0;
+    const brickUnlocked = charConfig.brickFromStart || currentLevel >= BRICK_UNLOCK_LEVEL;
+    this.brickAmmo = brickUnlocked ? BRICK_AMMO_PER_LEVEL : 0;
 
     this.playAnim('idle');
 
@@ -73,7 +79,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private playAnim(state: AnimState) {
     if (this.currentAnim === state) return;
     this.currentAnim = state;
-    this.play('worker_' + state, true);
+    this.play(`${this.charConfig.textureKey}_${state}`, true);
   }
 
   update(delta: number) {
@@ -82,10 +88,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const body = this.body as Phaser.Physics.Arcade.Body;
     const onGround = body.blocked.down;
 
-    // İniş tespiti — havadayken yere değdi mi?
     if (!this.wasOnGround && onGround && !this.isLanding) {
       this.triggerLand();
     }
+    // Yere değince çift zıplama hakkını sıfırla
+    if (onGround) this.hasDoubleJump = false;
     this.wasOnGround = onGround;
 
     if (this.isLanding) return;
@@ -100,43 +107,46 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const throwCement = Phaser.Input.Keyboard.JustDown(this.eKey);
     const throwBrick   = Phaser.Input.Keyboard.JustDown(this.qKey);
 
-    // Yön
     if (goLeft)  { this.facingRight = false; this.setFlipX(true); }
     if (goRight) { this.facingRight = true;  this.setFlipX(false); }
 
-    // Fırlatma
     if (throwCement && this.cementAmmo > 0) {
       this.cementAmmo--;
       this.launchProjectile('cement');
     }
-    if (throwBrick && this.brickAmmo > 0 && this.currentLevel >= BRICK_UNLOCK_LEVEL) {
+    const brickUnlocked = this.charConfig.brickFromStart || this.currentLevel >= BRICK_UNLOCK_LEVEL;
+    if (throwBrick && this.brickAmmo > 0 && brickUnlocked) {
       this.brickAmmo--;
       this.launchProjectile('brick');
     }
 
-    // Dash
     this.dashCooldown -= delta;
     if (dash && this.dashCooldown <= 0) {
       this.startDash();
       return;
     }
 
-    // Yatay hareket
     if (goLeft) {
-      this.setVelocityX(-PLAYER_SPEED);
+      this.setVelocityX(-this.charConfig.speed);
     } else if (goRight) {
-      this.setVelocityX(PLAYER_SPEED);
+      this.setVelocityX(this.charConfig.speed);
     } else {
       this.setVelocityX(0);
     }
 
-    // Zıplama
-    if (jump && onGround) {
-      this.setVelocityY(PLAYER_JUMP_VELOCITY);
-      this.soundManager.jump();
+    if (jump) {
+      if (onGround) {
+        this.setVelocityY(this.charConfig.jumpVelocity);
+        this.soundManager.jump();
+        // Çift zıplama hakkını aç (havaya çıktığında kullanılabilir)
+        if (this.charConfig.doubleJump) this.hasDoubleJump = true;
+      } else if (this.charConfig.doubleJump && this.hasDoubleJump) {
+        this.setVelocityY(this.charConfig.jumpVelocity * 0.85);
+        this.soundManager.jump();
+        this.hasDoubleJump = false;
+      }
     }
 
-    // Animasyon
     if (!onGround) {
       this.playAnim('jump');
     } else if (goLeft || goRight) {
@@ -153,7 +163,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
     this.scene.time.delayedCall(180, () => {
       this.isLanding = false;
-      this.currentAnim = 'idle'; // zorla sıfırla ki playAnim çalışsın
+      this.currentAnim = 'idle';
       this.playAnim('idle');
     });
   }
@@ -162,7 +172,6 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const offsetX = this.facingRight ? 28 : -28;
     const proj = new Projectile(this.scene, this.x + offsetX, this.y - 4, type, this.facingRight);
     this.projectileGroup.add(proj);
-    // Grubu ekledikten sonra hız ve yerçekimi garantile — group.add bazen body'yi sıfırlıyor
     const body = proj.body as Phaser.Physics.Arcade.Body;
     body.setAllowGravity(false);
     body.setVelocityX(this.facingRight ? PROJECTILE_SPEED : -PROJECTILE_SPEED);
@@ -171,7 +180,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   private startDash() {
     this.isDashing = true;
-    this.dashCooldown = PLAYER_DASH_COOLDOWN;
+    this.dashCooldown = this.charConfig.dashCooldown;
 
     const dir = this.facingRight ? 1 : -1;
     this.setVelocityX(PLAYER_DASH_SPEED * dir);

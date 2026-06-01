@@ -35,6 +35,7 @@ export class GameScene extends Phaser.Scene {
   private brickText!: Phaser.GameObjects.Text;
   private lives = MAX_LIVES;
   private currentLevel = 0;
+  private characterId = 'ustabasi';
   private isInvincible = false;
   private gameFinished = false;
   private isWaiting = true;
@@ -44,9 +45,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   // Bölüm numarası dışarıdan verilebilir (init ile)
-  init(data: { level?: number; lives?: number; score?: number }) {
+  init(data: { level?: number; lives?: number; score?: number; characterId?: string }) {
     this.currentLevel = data.level ?? 0;
     this.lives        = data.lives ?? MAX_LIVES;
+    this.characterId  = data.characterId ?? 'ustabasi';
   }
 
   create() {
@@ -61,8 +63,12 @@ export class GameScene extends Phaser.Scene {
     this.enemyHammers  = this.physics.add.group();
 
     const levelCfg = LEVELS[this.currentLevel];
+    const lw = levelCfg.levelWidth;
+    const lh = levelCfg.levelHeight;
 
-    new Background(this);
+    this.physics.world.setBounds(0, 0, lw, lh);
+
+    new Background(this, levelCfg.theme, lw);
 
     this.platforms = this.physics.add.staticGroup();
     for (const p of levelCfg.platforms) {
@@ -97,7 +103,7 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.enemies.getChildren(), this.platforms);
     this.physics.add.collider(this.enemies.getChildren(), this.movingPlatforms);
 
-    this.player = new Player(this, levelCfg.playerStart.x, levelCfg.playerStart.y, this.soundManager, this.projectiles, this.currentLevel + 1);
+    this.player = new Player(this, levelCfg.playerStart.x, levelCfg.playerStart.y, this.soundManager, this.projectiles, this.currentLevel + 1, this.characterId);
     this.physics.add.collider(this.player, this.platforms);
     this.physics.add.collider(this.player, this.movingPlatforms);
 
@@ -137,8 +143,8 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    this.cameras.main.setBounds(0, 0, GAME_WIDTH, GAME_HEIGHT);
-    this.cameras.main.startFollow(this.player);
+    this.cameras.main.setBounds(0, 0, lw, lh);
+    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
 
     // HUD
     this.scoreText = this.add.text(10, 10, 'SKOR: 0', {
@@ -324,7 +330,7 @@ export class GameScene extends Phaser.Scene {
         () => this.scene.start('MenuScene'));
     } else {
       makeBtn('▶  SONRAKİ BÖLÜM', cy + 52, cy + 74, true, 1000,
-        () => this.scene.start('GameScene', { level: this.currentLevel + 1, lives: this.lives }));
+        () => this.scene.start('GameScene', { level: this.currentLevel + 1, lives: this.lives, characterId: this.characterId }));
       makeBtn('⌂  ANA MENÜ', cy + 104, cy + 122, false, 1150,
         () => this.scene.start('MenuScene'));
     }
@@ -445,9 +451,9 @@ export class GameScene extends Phaser.Scene {
     btn1Bg.setInteractive(new Phaser.Geom.Rectangle(cx - 130, cy + 48, 260, 44), Phaser.Geom.Rectangle.Contains);
     btn1Bg.on('pointerover',  () => { drawBtn1(true);  btn1Txt.setStyle({ color: '#ffe0b2' }); });
     btn1Bg.on('pointerout',   () => { drawBtn1(false); btn1Txt.setStyle({ color: '#ffffff' }); });
-    btn1Bg.on('pointerdown',  () => this.scene.start('GameScene', { level: 0, lives: MAX_LIVES }));
+    btn1Bg.on('pointerdown',  () => this.scene.start('GameScene', { level: 0, lives: MAX_LIVES, characterId: this.characterId }));
     btn1Txt.setInteractive({ useHandCursor: true });
-    btn1Txt.on('pointerdown', () => this.scene.start('GameScene', { level: 0, lives: MAX_LIVES }));
+    btn1Txt.on('pointerdown', () => this.scene.start('GameScene', { level: 0, lives: MAX_LIVES, characterId: this.characterId }));
 
     btn1Bg.setAlpha(0); btn1Txt.setAlpha(0);
     this.tweens.add({ targets: [btn1Bg, btn1Txt], alpha: 1, duration: 320, delay: 1100 });

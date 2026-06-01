@@ -1,133 +1,132 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from '../config';
+import { LevelTheme } from '../config/levels';
 
 export class Background {
-  constructor(scene: Phaser.Scene) {
-    this.drawSky(scene);
-    this.drawBuildings(scene);
-    this.drawCrane(scene);
-    this.drawScaffolding(scene);
-    this.drawGround(scene);
+  constructor(scene: Phaser.Scene, theme: LevelTheme, levelWidth: number) {
+    this.drawSky(scene, theme);
+    this.drawClouds(scene, levelWidth);
+    this.drawBuildings(scene, theme, levelWidth);
+    this.drawDecorations(scene, levelWidth);
   }
 
-  private drawSky(scene: Phaser.Scene) {
-    // Turuncu-mavi inşaat günbatımı gradyanı (Phaser gradyan desteği yok, iki katman kullanıyoruz)
+  private drawSky(scene: Phaser.Scene, theme: LevelTheme) {
+    // Gökyüzü iki katman gradyan — her zaman ekranı kapsar (scrollFactor 0)
     const sky = scene.add.graphics();
-    sky.fillStyle(0x4a7fa5); // koyu mavi
-    sky.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT * 0.6);
-    sky.fillStyle(0xc8602a); // koyu turuncu ufuk
-    sky.fillRect(0, GAME_HEIGHT * 0.4, GAME_WIDTH, GAME_HEIGHT * 0.3);
-    sky.setDepth(-10);
-
-    // Birkaç bulut
-    this.drawCloud(scene, 80,  60);
-    this.drawCloud(scene, 300, 40);
-    this.drawCloud(scene, 570, 80);
-    this.drawCloud(scene, 720, 50);
+    sky.fillStyle(theme.skyTop);
+    sky.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT * 0.55);
+    sky.fillStyle(theme.skyBottom);
+    sky.fillRect(0, GAME_HEIGHT * 0.4, GAME_WIDTH, GAME_HEIGHT * 0.6);
+    sky.setDepth(-10).setScrollFactor(0);
   }
 
-  private drawCloud(scene: Phaser.Scene, x: number, y: number) {
-    const g = scene.add.graphics();
-    g.fillStyle(0xffffff, 0.85);
-    g.fillCircle(x,      y,      18);
-    g.fillCircle(x + 22, y - 8,  22);
-    g.fillCircle(x + 46, y,      18);
-    g.fillRect(x - 2, y, 50, 16);
-    g.setDepth(-9);
-  }
-
-  private drawBuildings(scene: Phaser.Scene) {
-    // Arka planda bina silüetleri
-    const buildings: Array<{ x: number; w: number; h: number; color: number }> = [
-      { x: 0,   w: 80,  h: 180, color: 0x4a4a6a },
-      { x: 90,  w: 60,  h: 130, color: 0x3a3a5a },
-      { x: 160, w: 90,  h: 200, color: 0x4a4a6a },
-      { x: 500, w: 100, h: 160, color: 0x3a3a5a },
-      { x: 610, w: 70,  h: 220, color: 0x4a4a6a },
-      { x: 690, w: 110, h: 150, color: 0x3a3a5a },
+  private drawClouds(scene: Phaser.Scene, levelWidth: number) {
+    // Bulutlar level genişliğine yayılır, yavaş paralaks
+    const positions = [
+      0.05, 0.15, 0.28, 0.40, 0.52, 0.64, 0.76, 0.88,
     ];
+    const ys = [50, 80, 35, 70, 55, 40, 75, 60];
 
-    for (const b of buildings) {
+    positions.forEach((t, i) => {
+      const x = t * levelWidth;
+      const y = ys[i % ys.length];
       const g = scene.add.graphics();
-      g.fillStyle(b.color);
-      g.fillRect(b.x, GAME_HEIGHT - b.h - 30, b.w, b.h);
+      g.fillStyle(0xffffff, 0.7);
+      g.fillCircle(x,      y,      16);
+      g.fillCircle(x + 20, y - 8,  20);
+      g.fillCircle(x + 44, y,      16);
+      g.fillRect(x - 2, y, 48, 14);
+      g.setDepth(-9).setScrollFactor(0.12, 0);
+    });
+  }
 
-      // Bina pencereleri
-      g.fillStyle(0xffd700, 0.6);
-      for (let row = 0; row < 4; row++) {
-        for (let col = 0; col < Math.floor(b.w / 20); col++) {
-          if (Math.random() > 0.35) {
-            g.fillRect(b.x + 6 + col * 20, GAME_HEIGHT - b.h - 20 + row * 30, 10, 14);
+  private drawBuildings(scene: Phaser.Scene, theme: LevelTheme, levelWidth: number) {
+    // Bina silüetleri level genişliğine yayılır, orta paralaks
+    const pattern = [
+      { dx: 0,   w: 70,  h: 160 },
+      { dx: 80,  w: 55,  h: 120 },
+      { dx: 145, w: 80,  h: 200 },
+      { dx: 240, w: 60,  h: 140 },
+      { dx: 310, w: 90,  h: 180 },
+      { dx: 415, w: 55,  h: 130 },
+    ];
+    const repeatW = 480;
+    const repeats = Math.ceil(levelWidth / repeatW) + 1;
+    const groundY = GAME_HEIGHT * 0.75;
+
+    for (let r = 0; r < repeats; r++) {
+      const ox = r * repeatW;
+      for (const b of pattern) {
+        const bx = ox + b.dx;
+        const by = groundY - b.h;
+
+        const g = scene.add.graphics();
+        // Bina gövdesi
+        g.fillStyle(theme.bgTint);
+        g.fillRect(bx, by, b.w, b.h);
+
+        // Pencere ışıkları
+        const rng = new Phaser.Math.RandomDataGenerator([`b${r}_${b.dx}`]);
+        g.fillStyle(0xffd700, 0.5);
+        const cols = Math.max(1, Math.floor(b.w / 18));
+        const rows = Math.max(1, Math.floor(b.h / 24));
+        for (let row = 0; row < rows; row++) {
+          for (let col = 0; col < cols; col++) {
+            if (rng.frac() > 0.45) {
+              g.fillRect(bx + 5 + col * 18, by + 6 + row * 24, 9, 12);
+            }
           }
         }
+
+        g.setDepth(-8).setScrollFactor(0.3, 0);
       }
-      g.setDepth(-8);
     }
   }
 
-  private drawCrane(scene: Phaser.Scene) {
+  private drawDecorations(scene: Phaser.Scene, levelWidth: number) {
+    // Vinç ve iskele dekorasyonları — birkaç noktada
+    const spots = [0.25, 0.5, 0.75].map(t => Math.floor(t * levelWidth));
+    for (const baseX of spots) {
+      this.drawCrane(scene, baseX);
+    }
+    this.drawScaffolding(scene, Math.floor(levelWidth * 0.08));
+    this.drawScaffolding(scene, Math.floor(levelWidth * 0.58));
+  }
+
+  private drawCrane(scene: Phaser.Scene, bx: number) {
     const g = scene.add.graphics();
     g.fillStyle(0xe8b84b);
-    g.lineStyle(4, 0xe8b84b);
+    const groundY = GAME_HEIGHT - 30;
 
-    const baseX = 370;
-    const baseY = GAME_HEIGHT - 30;
-
-    // Kule gövdesi
-    g.fillRect(baseX, baseY - 220, 14, 220);
-
-    // Üst kol (yatay)
-    g.fillRect(baseX - 60, baseY - 220, 160, 10);
-
-    // Ağırlık tarafı
-    g.fillRect(baseX - 60, baseY - 215, 12, 30);
-
-    // Kanca ipi
-    g.fillRect(baseX + 80, baseY - 210, 4, 60);
-
-    // Kanca
+    g.fillRect(bx, groundY - 200, 12, 200);
+    g.fillRect(bx - 55, groundY - 200, 130, 8);
+    g.fillRect(bx - 55, groundY - 195, 10, 28);
+    g.fillRect(bx + 70, groundY - 195, 4, 55);
     g.fillStyle(0xcccccc);
-    g.fillRect(baseX + 74, baseY - 150, 16, 8);
+    g.fillRect(bx + 64, groundY - 140, 14, 7);
 
-    // Kafes detayları (diyagonal çizgiler)
     g.lineStyle(2, 0xd4a030);
-    for (let i = 0; i < 5; i++) {
-      g.lineBetween(baseX, baseY - i * 44, baseX + 14, baseY - (i + 1) * 44);
-      g.lineBetween(baseX + 14, baseY - i * 44, baseX, baseY - (i + 1) * 44);
+    for (let i = 0; i < 4; i++) {
+      g.lineBetween(bx, groundY - i * 50, bx + 12, groundY - (i + 1) * 50);
+      g.lineBetween(bx + 12, groundY - i * 50, bx, groundY - (i + 1) * 50);
     }
-
-    g.setDepth(-7);
+    g.setDepth(-7).setScrollFactor(0.5, 0);
   }
 
-  private drawScaffolding(scene: Phaser.Scene) {
+  private drawScaffolding(scene: Phaser.Scene, sx: number) {
     const g = scene.add.graphics();
-    g.lineStyle(3, 0x8b7355, 0.7);
-    g.fillStyle(0x8b7355, 0.7);
+    g.lineStyle(3, 0x8b7355, 0.65);
+    g.fillStyle(0x8b7355, 0.65);
 
-    // İskele direkleri — sağ tarafta
-    const startX = 650;
-    const startY = GAME_HEIGHT - 30;
-    const levels = 3;
-    const levelH = 50;
+    const groundY = GAME_HEIGHT - 30;
+    const rows = 4;
+    const rowH = 48;
 
-    for (let i = 0; i <= levels; i++) {
-      // Yatay tahta
-      g.fillRect(startX, startY - i * levelH - 4, 90, 6);
+    for (let i = 0; i <= rows; i++) {
+      g.fillRect(sx, groundY - i * rowH - 4, 80, 5);
     }
-    // Dikey direkler
-    g.fillRect(startX + 2,  startY - levels * levelH, 6, levels * levelH);
-    g.fillRect(startX + 82, startY - levels * levelH, 6, levels * levelH);
-
-    g.setDepth(-7);
-  }
-
-  private drawGround(scene: Phaser.Scene) {
-    // Zemin şeridi — toprak dokusu
-    const g = scene.add.graphics();
-    g.fillStyle(0x5c4033);
-    g.fillRect(0, GAME_HEIGHT - 32, GAME_WIDTH, 32);
-    g.fillStyle(0x4a3020);
-    g.fillRect(0, GAME_HEIGHT - 32, GAME_WIDTH, 6);
-    g.setDepth(-6);
+    g.fillRect(sx + 2,  groundY - rows * rowH, 5, rows * rowH);
+    g.fillRect(sx + 73, groundY - rows * rowH, 5, rows * rowH);
+    g.setDepth(-7).setScrollFactor(0.5, 0);
   }
 }
