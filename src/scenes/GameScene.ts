@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH, GAME_HEIGHT, MIN_ENEMY_SPAWN_DISTANCE } from '../config';
+import { GAME_WIDTH, GAME_HEIGHT, MIN_ENEMY_SPAWN_DISTANCE, BRICK_AMMO_PER_LEVEL } from '../config';
 import { LEVELS, EnemyDef } from '../config/levels';
 import { Player } from '../objects/Player';
 import { Enemy } from '../objects/Enemy';
@@ -88,7 +88,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.enemies = this.add.group();
-    const spawnList = this.selectSpawns(levelCfg.spawnPool, levelCfg.spawnCount, levelCfg.playerStart);
+    const spawnList = this.selectSpawns(levelCfg.spawnPool, levelCfg.spawnCount, levelCfg.playerStart, this.currentLevel);
     for (const e of spawnList) {
       const type = e.type ?? 'runner';
       if (type === 'heavy') {
@@ -114,6 +114,11 @@ export class GameScene extends Phaser.Scene {
       this.effects.collect((col as Collectible).x, (col as Collectible).y);
       this.scoreManager.add(10);
       this.scoreText.setText('SKOR: ' + this.scoreManager.getScore());
+      // Her toplanan nesne +1 tuğla hakkı verir (max BRICK_AMMO_PER_LEVEL)
+      if (this.player && this.currentLevel + 1 >= BRICK_UNLOCK_LEVEL) {
+        this.player.brickAmmo = Math.min(this.player.brickAmmo + 1, BRICK_AMMO_PER_LEVEL);
+        this.updateAmmoHUD();
+      }
       if (this.collectibles.countActive() === 0) {
         this.levelComplete();
       }
@@ -487,12 +492,24 @@ export class GameScene extends Phaser.Scene {
     pool: EnemyDef[],
     count: number,
     playerStart: { x: number; y: number },
+    levelIndex: number,
   ): EnemyDef[] {
     const eligible = pool.filter(e =>
       Phaser.Math.Distance.Between(e.x, e.y, playerStart.x, playerStart.y) >= MIN_ENEMY_SPAWN_DISTANCE
     );
     Phaser.Utils.Array.Shuffle(eligible);
-    return eligible.slice(0, count);
+    const selected = eligible.slice(0, count);
+
+    // Tipi belirsiz girdilere bölüme göre ağırlıklı rastgele tip ata
+    const hammerW = [0.05, 0.08, 0.10, 0.12, 0.15, 0.18][Math.min(levelIndex, 5)];
+    const heavyW  = [0.10, 0.12, 0.15, 0.18, 0.20, 0.22][Math.min(levelIndex, 5)];
+    return selected.map(e => {
+      if (e.type) return e;
+      const r = Math.random();
+      if (r < hammerW)             return { ...e, type: 'hammer' as const };
+      if (r < hammerW + heavyW)    return { ...e, type: 'heavy'  as const };
+      return e;
+    });
   }
 
   private cementAmmoLabel(): string {
