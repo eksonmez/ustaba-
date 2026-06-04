@@ -124,10 +124,14 @@ export class CharacterSelectScene extends Phaser.Scene {
       lineSpacing: 4,
     }).setOrigin(0.5, 0);
 
-    // Özel rozet (çift zıplama veya tuğla)
+    // Özel rozet
     let badge = '';
-    if (char.doubleJump)         badge = '^ CIFT ZIPLAMA';
-    else if (char.brickFromStart) badge = '# TUGLA ACIK';
+    if (char.startingLives && char.startingLives > 3) badge = '♥ EKSTRA CAN';
+    else if (char.wallSlide)           badge = '↑ DUVAR KAYIŞ';
+    else if (char.dashStun)            badge = '⚡ DASH ŞOKU';
+    else if (char.piercingProjectile)  badge = '→ DELİÇİ MERMİ';
+    else if (char.doubleJump)          badge = '^ CIFT ZIPLAMA';
+    else if (char.brickFromStart)      badge = '# TUGLA ACIK';
     else if (char.dashCooldown < 1000) badge = '> HIZLI DASH';
     else if (char.jumpVelocity < -400) badge = '^ YUKSEK ZIPLAMA';
 
@@ -215,7 +219,6 @@ export class CharacterSelectScene extends Phaser.Scene {
       const char = CHARACTERS[this.selectedIndex];
       this.scene.start('GameScene', {
         level: this.startData.level,
-        lives: this.startData.lives,
         characterId: char.id,
       });
     };

@@ -27,6 +27,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   private isDashing = false;
   private dashCooldown = 0;
+
+  get dashing(): boolean { return this.isDashing; }
+  get hasDashStun(): boolean { return this.charConfig.dashStun ?? false; }
   private facingRight = true;
 
   private wasOnGround = true;
@@ -97,6 +100,13 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
     if (this.isLanding) return;
 
+    // Duvarcı: duvara değince yavaş kayış
+    if (this.charConfig.wallSlide && !onGround) {
+      if ((body.blocked.left || body.blocked.right) && body.velocity.y > 50) {
+        body.setVelocityY(50);
+      }
+    }
+
     const goLeft  = this.cursors.left.isDown  || this.wasd.left.isDown;
     const goRight = this.cursors.right.isDown || this.wasd.right.isDown;
     const jump =
@@ -117,7 +127,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const brickUnlocked = this.charConfig.brickFromStart || this.currentLevel >= BRICK_UNLOCK_LEVEL;
     if (throwBrick && this.brickAmmo > 0 && brickUnlocked) {
       this.brickAmmo--;
-      this.launchProjectile('brick');
+      this.launchProjectile(this.charConfig.piercingProjectile ? 'pipe' : 'brick');
     }
 
     this.dashCooldown -= delta;
@@ -138,8 +148,15 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       if (onGround) {
         this.setVelocityY(this.charConfig.jumpVelocity);
         this.soundManager.jump();
-        // Çift zıplama hakkını aç (havaya çıktığında kullanılabilir)
         if (this.charConfig.doubleJump) this.hasDoubleJump = true;
+      } else if (this.charConfig.wallSlide && (body.blocked.left || body.blocked.right)) {
+        // Duvarcı: duvardan zıplama — yukarı + duvara ters yön
+        const pushDir = body.blocked.left ? 1 : -1;
+        this.setVelocityY(this.charConfig.jumpVelocity);
+        this.setVelocityX(this.charConfig.speed * pushDir);
+        this.facingRight = pushDir > 0;
+        this.setFlipX(!this.facingRight);
+        this.soundManager.jump();
       } else if (this.charConfig.doubleJump && this.hasDoubleJump) {
         this.setVelocityY(this.charConfig.jumpVelocity * 0.85);
         this.soundManager.jump();
@@ -168,9 +185,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     });
   }
 
-  private launchProjectile(type: 'cement' | 'brick') {
+  private launchProjectile(type: 'cement' | 'brick' | 'pipe') {
     const offsetX = this.facingRight ? 28 : -28;
-    const proj = new Projectile(this.scene, this.x + offsetX, this.y - 4, type, this.facingRight);
+    const piercing = type === 'pipe';
+    const proj = new Projectile(this.scene, this.x + offsetX, this.y - 4, type, this.facingRight, piercing);
     this.projectileGroup.add(proj);
     const body = proj.body as Phaser.Physics.Arcade.Body;
     body.setAllowGravity(false);
@@ -187,8 +205,14 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.setVelocityY(0);
     (this.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
 
-    this.setAlpha(0.6);
-    this.setTint(0x00cfff);
+    if (this.charConfig.dashStun) {
+      this.setAlpha(0.9);
+      this.setTint(0xf5e642);
+      this.electricDashEffect();
+    } else {
+      this.setAlpha(0.6);
+      this.setTint(0x00cfff);
+    }
 
     this.scene.time.delayedCall(PLAYER_DASH_DURATION, () => {
       this.isDashing = false;
@@ -196,6 +220,101 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.clearTint();
       (this.body as Phaser.Physics.Arcade.Body).setAllowGravity(true);
       this.setVelocityX(0);
+    });
+  }
+
+  private electricDashEffect() {
+    // Başlangıç patlaması
+    this.spawnSparkBurst(12);
+
+    // Sarı ↔ beyaz tint titremesi
+    let yellow = true;
+    this.scene.time.addEvent({
+      delay: 30,
+      repeat: Math.floor(PLAYER_DASH_DURATION / 30) - 1,
+      callback: () => {
+        if (!this.isDashing) return;
+        yellow = !yellow;
+        this.setTint(yellow ? 0xf5e642 : 0xffffff);
+      },
+    });
+
+    // Hayalet iz (afterimage)
+    this.scene.time.addEvent({
+      delay: 20,
+      repeat: Math.floor(PLAYER_DASH_DURATION / 20) - 1,
+      callback: () => {
+        if (!this.active) return;
+        const ghost = this.scene.add.sprite(this.x, this.y, this.texture.key, this.frame.name)
+          .setAlpha(0.55).setTint(0xf5e642).setFlipX(this.flipX)
+          .setScale(this.scaleX, this.scaleY).setDepth(12);
+        this.scene.tweens.add({
+          targets: ghost,
+          alpha: 0,
+          scaleX: ghost.scaleX * 0.7,
+          scaleY: ghost.scaleY * 0.7,
+          duration: 120,
+          onComplete: () => ghost.destroy(),
+        });
+      },
+    });
+
+    // Sürekli kıvılcım
+    this.scene.time.addEvent({
+      delay: 18,
+      repeat: Math.floor(PLAYER_DASH_DURATION / 18) - 1,
+      callback: () => {
+        if (!this.active) return;
+        this.spawnSpark();
+      },
+    });
+  }
+
+  private spawnSparkBurst(count: number) {
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + Phaser.Math.FloatBetween(-0.4, 0.4);
+      const speed = Phaser.Math.FloatBetween(50, 140);
+      const size  = Phaser.Math.Between(4, 10);
+      const color = i % 2 === 0 ? 0xf5e642 : 0xffffff;
+
+      const gfx = this.scene.add.graphics().setDepth(15);
+      gfx.fillStyle(color, 1);
+      gfx.fillRect(-size / 2, -size / 2, size, size);
+      gfx.setPosition(this.x, this.y);
+
+      this.scene.tweens.add({
+        targets: gfx,
+        x: this.x + Math.cos(angle) * speed,
+        y: this.y + Math.sin(angle) * speed - 20,
+        alpha: 0,
+        angle: Phaser.Math.Between(-180, 180),
+        duration: Phaser.Math.Between(200, 380),
+        ease: 'Quad.easeOut',
+        onComplete: () => gfx.destroy(),
+      });
+    }
+  }
+
+  private spawnSpark() {
+    const ox = Phaser.Math.Between(-10, 10);
+    const oy = Phaser.Math.Between(-18, 8);
+    const color = Math.random() > 0.4 ? 0xf5e642 : 0xffffff;
+    const size  = Phaser.Math.Between(3, 8);
+
+    const gfx = this.scene.add.graphics().setDepth(14);
+    gfx.fillStyle(color, 1);
+    gfx.fillTriangle(-size / 2, 0, size / 2, 0, 0, -size * 1.6);
+    gfx.setPosition(this.x + ox, this.y + oy);
+
+    this.scene.tweens.add({
+      targets: gfx,
+      alpha: 0,
+      y: gfx.y - Phaser.Math.Between(20, 45),
+      scaleX: 0.1,
+      scaleY: 0.1,
+      duration: Phaser.Math.Between(100, 200),
+      ease: 'Quad.easeOut',
+      onComplete: () => gfx.destroy(),
     });
   }
 }

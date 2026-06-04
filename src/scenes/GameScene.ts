@@ -15,6 +15,7 @@ import { MovingPlatform } from '../objects/MovingPlatform';
 import { EffectsManager } from '../systems/EffectsManager';
 import { Projectile } from '../objects/Projectile';
 import { BRICK_UNLOCK_LEVEL, MAX_LIVES_CAP } from '../config';
+import { CHARACTERS } from '../types/CharacterConfig';
 
 const MAX_LIVES = 3;
 
@@ -39,6 +40,11 @@ export class GameScene extends Phaser.Scene {
   private isInvincible = false;
   private gameFinished = false;
   private isWaiting = true;
+  private isPaused = false;
+  private pauseOverlayObjects: Phaser.GameObjects.GameObject[] = [];
+  private readyOverlayObjects: Phaser.GameObjects.GameObject[] = [];
+  private escKey!: Phaser.Input.Keyboard.Key;
+  private pauseBtn!: Phaser.GameObjects.Text;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -47,14 +53,16 @@ export class GameScene extends Phaser.Scene {
   // Bölüm numarası dışarıdan verilebilir (init ile)
   init(data: { level?: number; lives?: number; score?: number; characterId?: string }) {
     this.currentLevel = data.level ?? 0;
-    this.lives        = data.lives ?? MAX_LIVES;
     this.characterId  = data.characterId ?? 'ustabasi';
+    const charCfg = CHARACTERS.find(c => c.id === this.characterId) ?? CHARACTERS[0];
+    this.lives = data.lives ?? charCfg.startingLives ?? MAX_LIVES;
   }
 
   create() {
     this.gameFinished = false;
     this.isInvincible = false;
     this.isWaiting    = true;
+    this.isPaused     = false;
 
     this.scoreManager = new ScoreManager();
     this.soundManager = new SoundManager();
@@ -136,6 +144,15 @@ export class GameScene extends Phaser.Scene {
       if (this.gameFinished || this.isInvincible) return;
       const body = this.player.body as Phaser.Physics.Arcade.Body;
       const e = enemy as BaseEnemy;
+      // Elektrikçi: dash sırasında düşmanı etkisiz hale getirir
+      if (this.player.dashing && this.player.hasDashStun) {
+        this.effects.stomp(e.x, e.y);
+        e.stomp();
+        this.soundManager.stomp();
+        this.scoreManager.add(20);
+        this.scoreText.setText('SKOR: ' + this.scoreManager.getScore());
+        return;
+      }
       if (body.velocity.y > 0 && this.player.y < e.y) {
         this.effects.stomp(e.x, e.y);
         e.stomp();
@@ -177,27 +194,40 @@ export class GameScene extends Phaser.Scene {
     }).setScrollFactor(0);
     this.updateAmmoHUD();
 
+    // Pause butonu (sağ üst, HUD üstünde)
+    this.pauseBtn = this.add.text(GAME_WIDTH - 10, 34, '❙❙', {
+      fontSize: '20px', color: '#ffffff', backgroundColor: '#00000066',
+      padding: { left: 8, right: 8, top: 4, bottom: 4 },
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(5).setInteractive({ useHandCursor: true });
+    this.pauseBtn.on('pointerdown', () => this.togglePause());
+    this.pauseBtn.on('pointerover', () => this.pauseBtn.setStyle({ color: '#ffd700' }));
+    this.pauseBtn.on('pointerout',  () => this.pauseBtn.setStyle({ color: '#ffffff' }));
+
+    // ESC tuşu
+    this.escKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+
     // Bekleme ekranı — oyuncu hareket ettirince başlar
     this.showReadyScreen();
   }
 
   private showReadyScreen() {
-    // Fizik dünyasını durdur — düşmanlar ve oyuncu donuk kalsın
     this.physics.pause();
+    this.readyOverlayObjects = [];
 
     const overlay = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 420, 180, 0x000000, 0.65)
       .setScrollFactor(0).setDepth(20);
-    overlay;
+    this.readyOverlayObjects.push(overlay);
 
-    this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50, `BÖLÜM ${this.currentLevel + 1}`, {
+    const title = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50, `BÖLÜM ${this.currentLevel + 1}`, {
       fontSize: '40px', color: '#ffd700', fontStyle: 'bold',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
+    this.readyOverlayObjects.push(title);
 
     const hint = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 10, 'Başlamak için hareket et', {
       fontSize: '20px', color: '#ffffff',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(21);
+    this.readyOverlayObjects.push(hint);
 
-    // Yanıp sönme
     this.tweens.add({
       targets: hint,
       alpha: 0.2,
@@ -205,32 +235,14 @@ export class GameScene extends Phaser.Scene {
       yoyo: true,
       repeat: -1,
     });
+    // Başlatma artık update() döngüsünde polling ile yapılır
+  }
 
-    // Herhangi bir hareket tuşuna basınca başla
-    const keys = [
-      this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT),
-      this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT),
-      this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.UP),
-      this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-      this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
-      this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-      this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
-    ];
-
-    const startGame = () => {
-      if (!this.isWaiting) return;
-      this.isWaiting = false;
-      this.physics.resume();
-      // Overlay ve yazıları temizle
-      this.children.list
-        .filter(c => (c as Phaser.GameObjects.GameObject & { depth?: number }).depth !== undefined &&
-                     ((c as unknown as { depth: number }).depth) >= 20)
-        .forEach(c => c.destroy());
-      // Dinleyicileri kaldır
-      keys.forEach(k => k.destroy());
-    };
-
-    keys.forEach(k => k.on('down', startGame));
+  private dismissReadyScreen() {
+    this.isWaiting = false;
+    this.physics.resume();
+    this.readyOverlayObjects.forEach(o => { if (o.active) o.destroy(); });
+    this.readyOverlayObjects = [];
   }
 
   private levelComplete() {
@@ -539,7 +551,28 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    if (this.gameFinished || this.isWaiting) return;
+    if (this.gameFinished) return;
+
+    if (this.isWaiting) {
+      const kb = this.input.keyboard!;
+      const anyDown =
+        kb.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT).isDown  ||
+        kb.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT).isDown ||
+        kb.addKey(Phaser.Input.Keyboard.KeyCodes.UP).isDown    ||
+        kb.addKey(Phaser.Input.Keyboard.KeyCodes.A).isDown     ||
+        kb.addKey(Phaser.Input.Keyboard.KeyCodes.D).isDown     ||
+        kb.addKey(Phaser.Input.Keyboard.KeyCodes.W).isDown     ||
+        kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE).isDown;
+      if (anyDown) this.dismissReadyScreen();
+      return;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.escKey)) {
+      this.togglePause();
+    }
+
+    if (this.isPaused) return;
+
     this.player.update(delta);
     for (const e of this.enemies.getChildren()) {
       (e as Enemy).update(this.player.x, this.player.y);
@@ -560,10 +593,23 @@ export class GameScene extends Phaser.Scene {
       for (const enemyObj of enemyList) {
         const e = enemyObj as BaseEnemy;
         if (!e.active) continue;
+        if (p.hitEnemyIds.has(e)) continue;
         if (!Phaser.Geom.Intersects.RectangleToRectangle(pb, e.getBounds())) continue;
 
         const ptype = p.projectileType;
         const ex = e.x; const ey = e.y;
+
+        if (p.piercing) {
+          // Deliçi mermi: düşmanı vur ama yok olma, devam et
+          p.hitEnemyIds.add(e);
+          e.hitByBrick();
+          this.effects.stomp(ex, ey);
+          this.soundManager.stomp();
+          this.scoreManager.add(20);
+          this.scoreText.setText('SKOR: ' + this.scoreManager.getScore());
+          continue;
+        }
+
         p.disableBody(true, true);
         this.time.delayedCall(0, () => { if (p.scene) p.destroy(); });
 
@@ -600,5 +646,82 @@ export class GameScene extends Phaser.Scene {
       this.takeDamage();
       break;
     }
+  }
+
+  private togglePause() {
+    if (this.gameFinished || this.isWaiting) return;
+    this.isPaused ? this.resumeGame() : this.showPauseMenu();
+  }
+
+  private showPauseMenu() {
+    this.isPaused = true;
+    this.physics.pause();
+
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+
+    const overlay = this.add.rectangle(cx, cy, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.65)
+      .setScrollFactor(0).setDepth(30);
+
+    const panel = this.add.graphics().setScrollFactor(0).setDepth(31);
+    panel.fillStyle(0x0d1b2a, 1);
+    panel.fillRoundedRect(cx - 160, cy - 110, 320, 220, 14);
+    panel.lineStyle(2, 0xffd700, 0.8);
+    panel.strokeRoundedRect(cx - 160, cy - 110, 320, 220, 14);
+
+    const title = this.add.text(cx, cy - 72, 'DURAKLAT', {
+      fontSize: '30px', color: '#ffd700', fontStyle: 'bold',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(32);
+
+    // Devam Et butonu
+    const resumeBg = this.add.graphics().setScrollFactor(0).setDepth(32);
+    const drawResume = (hover: boolean) => {
+      resumeBg.clear();
+      resumeBg.fillStyle(hover ? 0xd4a000 : 0xb08000, 1);
+      resumeBg.fillRoundedRect(cx - 110, cy - 30, 220, 44, 8);
+      resumeBg.lineStyle(2, 0xffd700, 1);
+      resumeBg.strokeRoundedRect(cx - 110, cy - 30, 220, 44, 8);
+    };
+    drawResume(false);
+    const resumeTxt = this.add.text(cx, cy - 8, '▶  DEVAM ET', {
+      fontSize: '20px', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(33);
+
+    resumeBg.setInteractive(new Phaser.Geom.Rectangle(cx - 110, cy - 30, 220, 44), Phaser.Geom.Rectangle.Contains);
+    resumeBg.on('pointerover',  () => { drawResume(true);  resumeTxt.setStyle({ color: '#ffe0b2' }); });
+    resumeBg.on('pointerout',   () => { drawResume(false); resumeTxt.setStyle({ color: '#ffffff' }); });
+    resumeBg.on('pointerdown',  () => this.resumeGame());
+    resumeTxt.setInteractive({ useHandCursor: true });
+    resumeTxt.on('pointerdown', () => this.resumeGame());
+
+    // Ana Menü butonu
+    const menuBg = this.add.graphics().setScrollFactor(0).setDepth(32);
+    const drawMenu = (hover: boolean) => {
+      menuBg.clear();
+      menuBg.fillStyle(hover ? 0x444444 : 0x2a2a2a, 1);
+      menuBg.fillRoundedRect(cx - 110, cy + 30, 220, 40, 8);
+      menuBg.lineStyle(1, 0x777777, 1);
+      menuBg.strokeRoundedRect(cx - 110, cy + 30, 220, 40, 8);
+    };
+    drawMenu(false);
+    const menuTxt = this.add.text(cx, cy + 50, '⌂  ANA MENÜ', {
+      fontSize: '17px', color: '#cccccc',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(33);
+
+    menuBg.setInteractive(new Phaser.Geom.Rectangle(cx - 110, cy + 30, 220, 40), Phaser.Geom.Rectangle.Contains);
+    menuBg.on('pointerover',  () => { drawMenu(true);  menuTxt.setStyle({ color: '#ffffff' }); });
+    menuBg.on('pointerout',   () => { drawMenu(false); menuTxt.setStyle({ color: '#cccccc' }); });
+    menuBg.on('pointerdown',  () => this.scene.start('MenuScene'));
+    menuTxt.setInteractive({ useHandCursor: true });
+    menuTxt.on('pointerdown', () => this.scene.start('MenuScene'));
+
+    this.pauseOverlayObjects = [overlay, panel, title, resumeBg, resumeTxt, menuBg, menuTxt];
+  }
+
+  private resumeGame() {
+    this.isPaused = false;
+    this.physics.resume();
+    this.pauseOverlayObjects.forEach(o => o.destroy());
+    this.pauseOverlayObjects = [];
   }
 }
