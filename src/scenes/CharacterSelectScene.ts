@@ -35,6 +35,29 @@ export class CharacterSelectScene extends Phaser.Scene {
     this.drawCards();
     this.drawPlayButton();
     this.drawBackButton();
+    this.addKeyboardNav();
+  }
+
+  private addKeyboardNav() {
+    const kb = this.input.keyboard!;
+    const last = CHARACTERS.length - 1;
+
+    const prev = () => { this.selectedIndex = this.selectedIndex <= 0 ? last : this.selectedIndex - 1; this.highlightCard(this.selectedIndex); };
+    const next = () => { this.selectedIndex = this.selectedIndex >= last ? 0 : this.selectedIndex + 1; this.highlightCard(this.selectedIndex); };
+    const confirm = () => this.scene.start('GameScene', { level: this.startData.level, characterId: CHARACTERS[this.selectedIndex].id });
+    const back = () => this.scene.start('MenuScene');
+
+    kb.on('keydown-LEFT',   prev);
+    kb.on('keydown-A',      prev);
+    kb.on('keydown-UP',     prev);
+    kb.on('keydown-W',      prev);
+    kb.on('keydown-RIGHT',  next);
+    kb.on('keydown-D',      next);
+    kb.on('keydown-DOWN',   next);
+    kb.on('keydown-S',      next);
+    kb.on('keydown-ENTER',  confirm);
+    kb.on('keydown-SPACE',  confirm);
+    kb.on('keydown-ESC',    back);
   }
 
   private drawBackground() {
@@ -241,5 +264,9 @@ export class CharacterSelectScene extends Phaser.Scene {
     back.on('pointerover', () => back.setStyle({ color: '#ffffff' }));
     back.on('pointerout',  () => back.setStyle({ color: '#aaaaaa' }));
     back.on('pointerdown', () => this.scene.start('MenuScene'));
+
+    this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 18, '← → / A D / W S: karakter seç   ENTER / SPACE: oyna   ESC: geri', {
+      fontSize: '11px', color: '#666666',
+    }).setOrigin(0.5);
   }
 }

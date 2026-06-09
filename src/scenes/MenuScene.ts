@@ -15,6 +15,12 @@ export class MenuScene extends Phaser.Scene {
     this.drawCrane();
     this.drawScaffolding();
     this.addUI();
+    this.addKeyboardNav();
+  }
+
+  private addKeyboardNav() {
+    this.input.keyboard!.once('keydown-ENTER', () => this.scene.start('CharacterSelectScene', { level: 0, lives: 3 }));
+    this.input.keyboard!.once('keydown-SPACE', () => this.scene.start('CharacterSelectScene', { level: 0, lives: 3 }));
   }
 
   private drawBackground() {
@@ -329,6 +335,10 @@ export class MenuScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
     startText.on('pointerdown', () => this.scene.start('CharacterSelectScene', { level: 0, lives: 3 }));
+
+    this.add.text(GAME_WIDTH / 2, cy - 14, 'ENTER veya SPACE ile de başlayabilirsin', {
+      fontSize: '11px', color: '#888888',
+    }).setOrigin(0.5);
 
     if (DEV_LEVEL_SELECT) {
       this.add.text(GAME_WIDTH / 2, cy - 24, '— TEST: Bölüm Seç —', {

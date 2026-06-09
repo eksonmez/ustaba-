@@ -36,5 +36,5 @@ export abstract class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
     this.stomp();
   }
 
-  abstract update(playerX?: number, playerY?: number): void;
+  abstract update(playerX?: number, playerY?: number, trail?: {x: number, y: number}[]): void;
 }

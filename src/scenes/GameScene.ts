@@ -42,6 +42,11 @@ export class GameScene extends Phaser.Scene {
   private isWaiting = true;
   private isPaused = false;
   private pauseOverlayObjects: Phaser.GameObjects.GameObject[] = [];
+  private pauseKbCleanup: (() => void) | null = null;
+  private playerTrail: {x: number, y: number}[] = [];
+  private lastTrailTime = 0;
+  private readonly TRAIL_INTERVAL = 250;
+  private readonly MAX_TRAIL = 2000;
   private readyOverlayObjects: Phaser.GameObjects.GameObject[] = [];
   private escKey!: Phaser.Input.Keyboard.Key;
   private pauseBtn!: Phaser.GameObjects.Text;
@@ -63,6 +68,8 @@ export class GameScene extends Phaser.Scene {
     this.isInvincible = false;
     this.isWaiting    = true;
     this.isPaused     = false;
+    this.playerTrail  = [];
+    this.lastTrailTime = 0;
 
     this.scoreManager = new ScoreManager();
     this.soundManager = new SoundManager();
@@ -573,9 +580,16 @@ export class GameScene extends Phaser.Scene {
 
     if (this.isPaused) return;
 
+    // Oyuncu rotasını kaydet
+    if (_time - this.lastTrailTime > this.TRAIL_INTERVAL) {
+      this.playerTrail.push({ x: this.player.x, y: this.player.y });
+      if (this.playerTrail.length > this.MAX_TRAIL) this.playerTrail.shift();
+      this.lastTrailTime = _time;
+    }
+
     this.player.update(delta);
     for (const e of this.enemies.getChildren()) {
-      (e as Enemy).update(this.player.x, this.player.y);
+      (e as BaseEnemy).update(this.player.x, this.player.y, this.playerTrail);
     }
     for (const mp of this.movingPlatforms) mp.update();
     this.checkProjectileHits();
@@ -715,7 +729,35 @@ export class GameScene extends Phaser.Scene {
     menuTxt.setInteractive({ useHandCursor: true });
     menuTxt.on('pointerdown', () => this.scene.start('MenuScene'));
 
-    this.pauseOverlayObjects = [overlay, panel, title, resumeBg, resumeTxt, menuBg, menuTxt];
+    // Klavye navigasyonu
+    let pauseSel = 0;
+    const updateHighlight = () => {
+      drawResume(pauseSel === 0);
+      resumeTxt.setStyle({ color: pauseSel === 0 ? '#ffe0b2' : '#ffffff' });
+      drawMenu(pauseSel === 1);
+      menuTxt.setStyle({ color: pauseSel === 1 ? '#ffffff' : '#cccccc' });
+    };
+    updateHighlight();
+
+    const kb = this.input.keyboard!;
+    const onUp      = () => { pauseSel = 0; updateHighlight(); };
+    const onDown    = () => { pauseSel = 1; updateHighlight(); };
+    const onConfirm = () => { if (pauseSel === 0) this.resumeGame(); else this.scene.start('MenuScene'); };
+    kb.on('keydown-UP',    onUp);    kb.on('keydown-W',     onUp);
+    kb.on('keydown-DOWN',  onDown);  kb.on('keydown-S',     onDown);
+    kb.on('keydown-ENTER', onConfirm); kb.on('keydown-SPACE', onConfirm);
+
+    this.pauseKbCleanup = () => {
+      kb.off('keydown-UP', onUp);     kb.off('keydown-W',     onUp);
+      kb.off('keydown-DOWN', onDown); kb.off('keydown-S',     onDown);
+      kb.off('keydown-ENTER', onConfirm); kb.off('keydown-SPACE', onConfirm);
+    };
+
+    const hint = this.add.text(cx, cy + 82, '↑ W / ↓ S: seç   ENTER / SPACE: onayla', {
+      fontSize: '11px', color: '#555555',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(33);
+
+    this.pauseOverlayObjects = [overlay, panel, title, resumeBg, resumeTxt, menuBg, menuTxt, hint];
   }
 
   private resumeGame() {
@@ -723,5 +765,6 @@ export class GameScene extends Phaser.Scene {
     this.physics.resume();
     this.pauseOverlayObjects.forEach(o => o.destroy());
     this.pauseOverlayObjects = [];
+    if (this.pauseKbCleanup) { this.pauseKbCleanup(); this.pauseKbCleanup = null; }
   }
 }
